@@ -67,7 +67,7 @@ public static class FacetExtensions
     public static TTarget ToFacet<TSource, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicConstructors)] TTarget>(this TSource source)
         where TTarget : class
     {
-        if (source is null) throw new ArgumentNullException(nameof(source));    
+        if (source is null) throw new ArgumentNullException(nameof(source));
         return FacetCache<TSource, TTarget>.Mapper(source);
     }
 
@@ -268,7 +268,7 @@ public static class FacetExtensions
         }
         return list;
     }
-    
+
     /// <summary>
     /// Maps an <see cref="IEnumerable"/> of facet objects to an <see cref="IEnumerable{TFacetSource}"/>
     /// via the generated ToSource method of each facet type.
@@ -405,7 +405,7 @@ public static class FacetExtensions
     {
         if (source is null) throw new ArgumentNullException(nameof(source));
 
-        var targetType = typeof(TTarget);        
+        var targetType = typeof(TTarget);
 
         var declaredProjection = GetDeclaredProjectionLambda(targetType, source.ElementType);
 
@@ -417,6 +417,44 @@ public static class FacetExtensions
             typeof(Queryable),
             nameof(Queryable.Select),
             new[] { source.ElementType, targetType },
+            source.Expression,
+            adapted);
+
+        return source.Provider.CreateQuery<TTarget>(selectCall);
+    }
+
+    /// <summary>
+    /// Projects a non-generic query using a generated projection expression, allowing generated
+    /// navigation options to be applied while preserving the query provider's expression tree.
+    /// </summary>
+    public static IQueryable<TTarget> SelectFacet<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] TTarget>(
+        this IQueryable source,
+        LambdaExpression projection)
+        where TTarget : class
+    {
+        if (source is null) throw new ArgumentNullException(nameof(source));
+        if (projection is null) throw new ArgumentNullException(nameof(projection));
+        if (projection.ReturnType != typeof(TTarget))
+            throw new ArgumentException($"Projection return type must be {typeof(TTarget)}.", nameof(projection));
+
+        var declaredParameter = projection.Parameters[0];
+        LambdaExpression adapted;
+        if (declaredParameter.Type == source.ElementType)
+        {
+            adapted = projection;
+        }
+        else
+        {
+            var parameter = Expression.Parameter(source.ElementType, declaredParameter.Name);
+            var replacement = Expression.Convert(parameter, declaredParameter.Type);
+            var body = new ReplaceParameterVisitor(declaredParameter, replacement).Visit(projection.Body)
+                ?? throw new InvalidOperationException("Failed to adapt Projection expression.");
+            adapted = Expression.Lambda(body, parameter);
+        }
+        var selectCall = Expression.Call(
+            typeof(Queryable),
+            nameof(Queryable.Select),
+            new[] { source.ElementType, typeof(TTarget) },
             source.Expression,
             adapted);
 

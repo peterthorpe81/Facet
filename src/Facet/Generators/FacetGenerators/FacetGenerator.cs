@@ -22,17 +22,20 @@ public sealed class FacetGenerator : IIncrementalGenerator
                 predicate: static (node, _) => node is TypeDeclarationSyntax,
                 transform: static (ctx, token) => (ctx, token))
             .Combine(globalOptions)
-            
+
             .SelectMany(static (combined, token) => ModelBuilder.BuildModels(combined.Left.ctx, combined.Right, combined.Left.token))
             .Where(static m => m is not null);
 
         var allFacets = facets.Collect();
-        var allFacetsWithConfig = allFacets.Combine(globalOptions);
+        var allFacetsWithConfig = allFacets.Combine(globalOptions).Combine(context.CompilationProvider);
 
         context.RegisterSourceOutput(allFacetsWithConfig, static (spc, pair) =>
         {
-            var (models, globalConfig) = pair;
+            var ((models, globalConfig), compilation) = pair;
             spc.CancellationToken.ThrowIfCancellationRequested();
+            var supportsProjectionOptions = compilation.GetTypeByMetadataName("Facet.Extensions.FacetExtensions") != null;
+            var supportsEfCoreOptions = supportsProjectionOptions &&
+                compilation.GetTypeByMetadataName("Microsoft.EntityFrameworkCore.DbContext") != null;
 
             var modelsByTarget = models
                 .Where(m => m is not null)
@@ -57,6 +60,13 @@ public sealed class FacetGenerator : IIncrementalGenerator
                 {
                     var code = CodeBuilder.GenerateForGroup(modelsForTarget, facetLookup);
                     spc.AddSource($"{group.Key}.g.cs", SourceText.From(code, Encoding.UTF8));
+                }
+
+                if (supportsProjectionOptions && modelsForTarget.Count == 1 && modelsForTarget[0].GenerateExpressionProjection &&
+                    modelsForTarget[0].Members.Any(member => member.IsNestedFacet && member.MapFromIncludeInProjection))
+                {
+                    var optionsCode = ProjectionOptionsGenerator.Generate(modelsForTarget[0], facetLookup, supportsEfCoreOptions);
+                    spc.AddSource($"{group.Key}.ProjectionOptions.g.cs", SourceText.From(optionsCode, Encoding.UTF8));
                 }
             }
         });

@@ -28,7 +28,7 @@ public class LinqProjectionTests : IDisposable
         userDtos.Should().HaveCount(3);
         userDtos.All(dto => !string.IsNullOrEmpty(dto.FirstName)).Should().BeTrue();
         userDtos.All(dto => !string.IsNullOrEmpty(dto.Email)).Should().BeTrue();
-        
+
         var dtoType = userDtos.First().GetType();
         dtoType.GetProperty("Password").Should().BeNull();
         dtoType.GetProperty("CreatedAt").Should().BeNull();
@@ -87,14 +87,14 @@ public class LinqProjectionTests : IDisposable
             .ToList();
 
         groupedResults.Should().HaveCount(2);
-        
+
         var activeGroup = groupedResults.First(g => g.IsActive);
         var inactiveGroup = groupedResults.First(g => !g.IsActive);
-        
+
         activeGroup.Count.Should().Be(2);
         activeGroup.Users.Should().HaveCount(2);
         activeGroup.Users.All(u => u.IsActive).Should().BeTrue();
-        
+
         inactiveGroup.Count.Should().Be(1);
         inactiveGroup.Users.Should().HaveCount(1);
         inactiveGroup.Users.All(u => !u.IsActive).Should().BeTrue();
@@ -170,12 +170,12 @@ public class LinqProjectionTests : IDisposable
             TestDataFactory.CreateUser("Bob", "Smith", "bob.smith@example.com", new DateTime(1992, 8, 10), true),
             TestDataFactory.CreateUser("Charlie", "Brown", "charlie.brown@example.com", new DateTime(1988, 12, 5), false)
         };
-        
+
         for (int i = 0; i < users.Count; i++)
         {
             users[i].Id = baseId + i;
         }
-        
+
         _context.Set<User>().AddRange(users);
 
         var products = new List<Product>
@@ -184,13 +184,13 @@ public class LinqProjectionTests : IDisposable
             TestDataFactory.CreateProduct("Product 2"),
             TestDataFactory.CreateProduct("Product 3")
         };
-        
+
         for (int i = 0; i < products.Count && i < users.Count; i++)
         {
             products[i].Id = baseId + 100 + i;
             products[i].CategoryId = users[i].Id;
         }
-        
+
         _context.Set<Product>().AddRange(products);
         _context.SaveChanges();
     }
@@ -360,6 +360,89 @@ public class LinqProjectionTests : IDisposable
         orderDto.ShippingAddress.City.Should().Be("Ship City");
     }
 
+    [Fact]
+    public async Task ToFacetsAsync_WithOptions_ShouldFilterProjectTeams()
+    {
+        _context.Set<ProjectEntity>().Add(CreateProjectForOptionsTests());
+        _context.SaveChanges();
+        _context.ChangeTracker.Clear();
+
+        Action<ProjectFacetProjectionOptions> options = options =>
+            options.IncludeTeams(where: team => team.Id == 2001);
+
+        var project = (await _context.Set<ProjectEntity>()
+            .Where(project => project.Id == 1001)
+            .ToFacetsAsync<ProjectFacet>(options))
+            .Single();
+
+        project.Teams.Should().ContainSingle();
+        project.Teams.Single().Id.Should().Be(2001);
+        project.Teams.Single().Members.Should().BeNull();
+    }
+
+    [Fact]
+    public void SelectFacet_WithOptions_ShouldSelectNestedProjectNavigations()
+    {
+        var source = new[] { CreateProjectForOptionsTests() }.AsQueryable();
+
+        Action<ProjectFacetProjectionOptions> options = options =>
+        {
+            options.IncludeTeams(where: team => team.Id == 2001);
+            options.TeamsOptions.IncludeMembers();
+            options.TeamsOptions.MembersOptions.IncludeHomeAddress();
+        };
+
+        var project = source.SelectFacet<ProjectFacet>(options).Single();
+
+        project.Teams.Should().ContainSingle();
+        var team = project.Teams.Single();
+        team.Members.Should().HaveCount(2);
+        team.Members.Should().Contain(member =>
+            member.FirstName == "John" && member.HomeAddress.Street == "123 Main St");
+        team.Members.Should().Contain(member =>
+            member.FirstName == "Jane" && member.HomeAddress.Street == "456 Elm St");
+    }
+
+    private static ProjectEntity CreateProjectForOptionsTests() => new()
+    {
+        Id = 1001,
+        Name = "Test Project",
+        Teams = new List<TeamEntity>
+        {
+            new()
+            {
+                Id = 2001,
+                Name = "Team A",
+                Members = new[]
+                {
+                    new StaffMember
+                    {
+                        Id = 3001,
+                        FirstName = "John",
+                        LastName = "Doe",
+                        HomeAddress = new AddressEntity { Street = "123 Main St", City = "Test City", State = "TS", ZipCode = "12345", Country = "Testland" }
+                    },
+                    new StaffMember
+                    {
+                        Id = 3002,
+                        FirstName = "Jane",
+                        LastName = "Smith",
+                        HomeAddress = new AddressEntity { Street = "456 Elm St", City = "Test City", State = "TS", ZipCode = "12345", Country = "Testland" }
+                    }
+                }
+            },
+            new()
+            {
+                Id = 2002,
+                Name = "Team B",
+                Members = new[]
+                {
+                    new StaffMember { Id = 3003, FirstName = "Alice", LastName = "Johnson" }
+                }
+            }
+        }
+    };
+
     public void Dispose()
     {
         _context.Dispose();
@@ -383,5 +466,8 @@ public class TestDbContext : DbContext
         modelBuilder.Entity<CompanyEntity>().HasKey(c => c.Id);
         modelBuilder.Entity<OrderEntity>().HasKey(o => o.Id);
         modelBuilder.Entity<OrderItemEntity>().HasKey(i => i.Id);
+        modelBuilder.Entity<ProjectEntity>().HasKey(project => project.Id);
+        modelBuilder.Entity<TeamEntity>().HasKey(team => team.Id);
+        modelBuilder.Entity<TeamEntity>().Ignore(team => team.Members);
     }
 }

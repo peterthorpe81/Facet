@@ -137,8 +137,7 @@ var companies = await dbContext.Companies
 await dbContext.Companies.ToFacetsAsync<CompanyDto>();       
 await dbContext.Companies.FirstFacetAsync<CompanyDto>();    
 await dbContext.Companies.SelectFacet<CompanyDto>().ToListAsync();
-
-// Also works with collecstions:
+// Also works with collections:
 [Facet(typeof(OrderItem))]
 public partial record OrderItemDto;
 
@@ -148,6 +147,32 @@ public partial record OrderDto;
 var orders = await dbContext.Orders.ToFacetsAsync<OrderDto>();
 // Automatically includes Items collection and ShippingAddress!
 ```
+
+#### Selecting and filtering nested facets
+
+For a facet with nested navigation properties, generated overloads let you choose which
+navigations to project. Collection navigations can also be filtered. Unselected nested
+navigations are left at their default value; the regular projection methods keep their
+existing behavior.
+
+```csharp
+var students = await dbContext.Students.ToFacetsAsync<StudentDto>(options =>
+{
+    options.IncludeStudentCourses(where: studentCourse => studentCourse.Grade == "A");
+    options.StudentCoursesOptions.IncludeCourse();
+});
+
+var studentQuery = dbContext.Students.SelectFacet<StudentDto>(options =>
+{
+    options.IncludeStudentCourses(where: studentCourse => studentCourse.Grade == "A");
+    options.StudentCoursesOptions.IncludeCourse();
+});
+```
+
+The option methods are generated for each facet's nested navigation properties. For a
+collection navigation, `IncludeStudentCourses` accepts an optional predicate over the
+source collection element; the corresponding `StudentCoursesOptions` property configures
+navigations on each projected element.
 
 ### Reverse Mapping: ApplyFacet
 

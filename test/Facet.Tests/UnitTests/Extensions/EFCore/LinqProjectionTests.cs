@@ -361,83 +361,93 @@ public class LinqProjectionTests : IDisposable
     }
 
     [Fact]
-    public async Task ToFacetsAsync_WithOptions_ShouldFilterProjectTeams()
+    public async Task ToFacetsAsync_WithOptions_ShouldFilterStudentCoursesAndIncludeCourse()
     {
-        _context.Set<ProjectEntity>().Add(CreateProjectForOptionsTests());
+        _context.Set<Student>().AddRange(CreateStudentForOptionsTests());
         _context.SaveChanges();
         _context.ChangeTracker.Clear();
 
-        Action<ProjectFacetProjectionOptions> options = options =>
-            options.IncludeTeams(where: team => team.Id == 2001);
-
-        var project = (await _context.Set<ProjectEntity>()
-            .Where(project => project.Id == 1001)
-            .ToFacetsAsync<ProjectFacet>(options))
+        var student = (await _context.Set<Student>()
+            .Where(student => student.Id == 1001)
+            .ToFacetsAsync<StudentDto>(options =>
+            {
+                options.IncludeStudentCourses(where: studentCourse => studentCourse.Grade == "A");
+                options.StudentCoursesOptions.IncludeCourse();
+            }))
             .Single();
 
-        project.Teams.Should().ContainSingle();
-        project.Teams.Single().Id.Should().Be(2001);
-        project.Teams.Single().Members.Should().BeNull();
+        student.StudentCourses.Should().ContainSingle();
+        student.StudentCourses.Single().Grade.Should().Be("A");
+        student.StudentCourses.Single().Course.Should().NotBeNull();
+        student.StudentCourses.Single().Course!.Name.Should().Be("Mathematics");
     }
 
     [Fact]
-    public void SelectFacet_WithOptions_ShouldSelectNestedProjectNavigations()
+    public void SelectFacet_WithOptions_ShouldFilterStudentCoursesAndOmitUnselectedCourse()
     {
-        var source = new[] { CreateProjectForOptionsTests() }.AsQueryable();
+        var source = CreateStudentForOptionsTests().AsQueryable();
 
-        Action<ProjectFacetProjectionOptions> options = options =>
-        {
-            options.IncludeTeams(where: team => team.Id == 2001);
-            options.TeamsOptions.IncludeMembers();
-            options.TeamsOptions.MembersOptions.IncludeHomeAddress();
-        };
+        var students = source.SelectFacet<StudentDto>(options =>
+            options.IncludeStudentCourses(where: studentCourse => studentCourse.Grade == "A"))
+            .ToList();
 
-        var project = source.SelectFacet<ProjectFacet>(options).Single();
-
-        project.Teams.Should().ContainSingle();
-        var team = project.Teams.Single();
-        team.Members.Should().HaveCount(2);
-        team.Members.Should().Contain(member =>
-            member.FirstName == "John" && member.HomeAddress.Street == "123 Main St");
-        team.Members.Should().Contain(member =>
-            member.FirstName == "Jane" && member.HomeAddress.Street == "456 Elm St");
+        students.Should().HaveCount(2);
+        students[0].StudentCourses.Should().ContainSingle();
+        students[0].StudentCourses.Single().Grade.Should().Be("A");
+        students[0].StudentCourses.Single().Course.Should().BeNull();
+        students[1].StudentCourses.Should().ContainSingle();
+        students[1].StudentCourses.Single().Grade.Should().Be("A");
+        students[1].StudentCourses.Single().Course.Should().BeNull();
     }
 
-    private static ProjectEntity CreateProjectForOptionsTests() => new()
+
+    private static List<Student> CreateStudentForOptionsTests() => new()
     {
-        Id = 1001,
-        Name = "Test Project",
-        Teams = new List<TeamEntity>
+        new()
         {
-            new()
+            Id = 1001,
+            Name = "Ada",
+            StudentCourses = new List<StudentCourse>
             {
-                Id = 2001,
-                Name = "Team A",
-                Members = new[]
+                new()
                 {
-                    new StaffMember
-                    {
-                        Id = 3001,
-                        FirstName = "John",
-                        LastName = "Doe",
-                        HomeAddress = new AddressEntity { Street = "123 Main St", City = "Test City", State = "TS", ZipCode = "12345", Country = "Testland" }
-                    },
-                    new StaffMember
-                    {
-                        Id = 3002,
-                        FirstName = "Jane",
-                        LastName = "Smith",
-                        HomeAddress = new AddressEntity { Street = "456 Elm St", City = "Test City", State = "TS", ZipCode = "12345", Country = "Testland" }
-                    }
+                    Id = 2001,
+                    StudentId = 1001,
+                    CourseId = 3001,
+                    Grade = "A",
+                    Course = new Course { Id = 3001, Name = "Mathematics" }
+                },
+                new()
+                {
+                    Id = 2002,
+                    StudentId = 1001,
+                    CourseId = 3002,
+                    Grade = "B",
+                    Course = new Course { Id = 3002, Name = "History" }
                 }
-            },
-            new()
+            }
+        },
+        new()
+        {
+            Id = 1002,
+            Name = "Adam",
+            StudentCourses = new List<StudentCourse>
             {
-                Id = 2002,
-                Name = "Team B",
-                Members = new[]
+                new()
                 {
-                    new StaffMember { Id = 3003, FirstName = "Alice", LastName = "Johnson" }
+                    Id = 2003,
+                    StudentId = 1002,
+                    CourseId = 3003,
+                    Grade = "A",
+                    Course = new Course { Id = 3003, Name = "Mathematics" }
+                },
+                new()
+                {
+                    Id = 2004,
+                    StudentId = 1002,
+                    CourseId = 3004,
+                    Grade = "B",
+                    Course = new Course { Id = 3004, Name = "History" }
                 }
             }
         }
@@ -469,5 +479,10 @@ public class TestDbContext : DbContext
         modelBuilder.Entity<ProjectEntity>().HasKey(project => project.Id);
         modelBuilder.Entity<TeamEntity>().HasKey(team => team.Id);
         modelBuilder.Entity<TeamEntity>().Ignore(team => team.Members);
+        modelBuilder.Entity<Student>().HasKey(student => student.Id);
+        modelBuilder.Entity<Student>().HasMany(student => student.StudentCourses).WithOne().HasForeignKey(studentCourse => studentCourse.StudentId);
+        modelBuilder.Entity<StudentCourse>().HasKey(studentCourse => studentCourse.Id);
+        modelBuilder.Entity<StudentCourse>().HasOne(studentCourse => studentCourse.Course).WithMany().HasForeignKey(studentCourse => studentCourse.CourseId);
+        modelBuilder.Entity<Course>().HasKey(course => course.Id);
     }
 }

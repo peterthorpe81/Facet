@@ -101,6 +101,37 @@ public partial record TeamFacet;
 [Facet(typeof(ProjectEntity), NestedFacets = [typeof(TeamFacet)], GenerateToSource = true)]
 public partial record ProjectFacet;
 
+public class Student
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public List<StudentCourse> StudentCourses { get; set; } = new();
+}
+
+public class StudentCourse
+{
+    public int Id { get; set; }
+    public int StudentId { get; set; }
+    public int? CourseId { get; set; }
+    public string Grade { get; set; } = string.Empty;
+    public Course? Course { get; set; }
+}
+
+public class Course
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
+[Facet(typeof(Course))]
+public partial class CourseDto { }
+
+[Facet(typeof(StudentCourse), NestedFacets = [typeof(CourseDto)])]
+public partial class StudentCourseDto { }
+
+[Facet(typeof(Student), NestedFacets = [typeof(StudentCourseDto)])]
+public partial class StudentDto { }
+
 public class LibraryBookEntity
 {
     public int Id { get; set; }
